@@ -1,5 +1,9 @@
+# BOT_TOKEN = "8570870167:AAFaV8TbIXqdTXZy5YQO4yDL5aNk0qifyzA"
+
 import asyncio
-from aiogram import Bot, Dispatcher, F
+import os
+from aiohttp import web
+from aiogram import Bot, Dispatcher
 from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -16,7 +20,7 @@ bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
 
-# Класс состояний FSM для каждого шага
+# Класс состояний FSM
 class Survey(StatesGroup):
     shoot_date = State()
     order_code = State()
@@ -39,13 +43,11 @@ class Survey(StatesGroup):
     delivery_date = State()
 
 
-# Вспомогательная функция для генерации клавиатур
 def make_keyboard(buttons: list[str]) -> ReplyKeyboardMarkup:
     keyboard = [[KeyboardButton(text=btn)] for btn in buttons]
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True, one_time_keyboard=True)
 
 
-# --- Старт ---
 @dp.message(CommandStart())
 async def cmd_start(message: Message, state: FSMContext):
     await state.clear()
@@ -265,7 +267,6 @@ async def step_client_contacts(message: Message, state: FSMContext):
     await state.set_state(Survey.delivery_date)
 
 
-# --- Финал: Сборка и вывод ТЗ ---
 @dp.message(Survey.delivery_date)
 async def step_finish(message: Message, state: FSMContext):
     await state.update_data(delivery_date=message.text)
@@ -299,7 +300,24 @@ async def step_finish(message: Message, state: FSMContext):
     await state.clear()
 
 
+# Фейковый веб-сервер для прохождения проверки портов Render
+async def handle_ping(request):
+    return web.Response(text="Bot is running!")
+
+
+async def run_web_server():
+    app = web.Application()
+    app.router.add_get("/", handle_ping)
+    app.router.add_get("/ping", handle_ping)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    port = int(os.environ.get("PORT", 8080))
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
+
+
 async def main():
+    await run_web_server()
     await dp.start_polling(bot)
 
 
