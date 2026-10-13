@@ -1,11 +1,16 @@
 import asyncio
+import calendar
+from datetime import datetime
 import os
 from aiohttp import web
-from aiogram import Bot, Dispatcher
+from aiogram import Bot, Dispatcher, F
 from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import (
+    CallbackQuery,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
     KeyboardButton,
     Message,
     ReplyKeyboardMarkup,
@@ -18,7 +23,7 @@ bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
 
-# Класс состояний FSM
+# --- FSM Состояния ---
 class Survey(StatesGroup):
     shoot_date = State()
     order_code = State()
@@ -41,57 +46,108 @@ class Survey(StatesGroup):
     delivery_date = State()
 
 
+# --- Вспомогательные функции для клавиатур ---
 def make_keyboard(buttons: list[str]) -> ReplyKeyboardMarkup:
     keyboard = [[KeyboardButton(text=btn)] for btn in buttons]
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True, one_time_keyboard=True)
 
 
+MONTHS_RU = [
+    "",
+    "Январь",
+    "Февраль",
+    "Март",
+    "Апрель",
+    "Май",
+    "Июнь",
+    "Июль",
+    "Август",
+    "Сентябрь",
+    "Октябрь",
+    "Ноябрь",
+    "Декабрь",
+]
+
+
+def generate_calendar_keyboard(year: int, month: int) -> InlineKeyboardMarkup:
+    """Генератор инлайн-календаря для Telegram"""
+    kb = []
+
+    # Заголовок (Месяц Год)
+    month_name = MONTHS_RU[month]
+    kb.append([InlineKeyboardButton(text=f"{month_name} {year}", callback_data="cal_ignore")])
+
+    # Дни недели
+    days_header = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
+    kb.append([InlineKeyboardButton(text=day, callback_data="cal_ignore") for day in days_header])
+
+    # Сетка дней
+    cal = calendar.monthcalendar(year, month)
+    for week in cal:
+        row = []
+        for day in week:
+            if day == 0:
+                row.append(InlineKeyboardButton(text=" ", callback_data="cal_ignore"))
+            else:
+                row.append(
+                    InlineKeyboardButton(
+                        text=str(day),
+                        callback_data=f"cal_day:{year}:{month:02d}:{day:02d}",
+                    )
+                )
+        kb.append(row)
+
+    # Стрелки переключения месяцев
+    prev_month = month - 1 if month > 1 else 12
+    prev_year = year if month > 1 else year - 1
+
+    next_month = month + 1 if month < 12 else 1
+    next_year = year if month < 12 else year + 1
+
+    nav_row = [
+        InlineKeyboardButton(text="◀️", callback_data=f"cal_nav:{prev_year}:{prev_month}"),
+        InlineKeyboardButton(text="▶️", callback_data=f"cal_nav:{next_year}:{next_month}"),
+    ]
+    kb.append(nav_row)
+
+    return InlineKeyboardMarkup(inline_keyboard=kb)
+
+
+# --- Старт и Шаг 1 (Календарь даты съемки) ---
 @dp.message(CommandStart())
 async def cmd_start(message: Message, state: FSMContext):
     await state.clear()
+    now = datetime.now()
+    kb = generate_calendar_keyboard(now.year, now.month)
     await message.answer(
         "👋 Здравствуйте! Давайте заполним техническое задание на съемку.\n\n"
-        "Укажите <b>дату съемки</b> (например: 15.11.2026):",
-        reply_markup=ReplyKeyboardRemove(),
+        "📅 Выберите <b>дату съемки</b> в календаре (или напишите дату вручную):",
+        reply_markup=kb,
         parse_mode="HTML",
     )
     await state.set_state(Survey.shoot_date)
 
 
-@dp.message(Survey.shoot_date)
-async def step_shoot_date(message: Message, state: FSMContext):
-    await state.update_data(shoot_date=message.text)
-    await message.answer("1. Введите <b>код вашего заказа</b> (например: АН091076):", parse_mode="HTML")
-    await state.set_state(Survey.order_code)
+@dp.callback_query(F.data.startswith("cal_nav:"), Survey.shoot_date)
+async def calendar_nav(callback: CallbackQuery):
+    _, year_str, month_str = callback.data.split(":")
+    year, month = int(year_str), int(month_str)
+    new_kb = generate_calendar_keyboard(year, month)
+    await callback.message.edit_reply_markup(reply_markup=new_kb)
+    await callback.answer()
 
 
-@dp.message(Survey.order_code)
-async def step_order_code(message: Message, state: FSMContext):
-    await state.update_data(order_code=message.text)
-    kb = make_keyboard(["WB", "OZON", "Lamoda", "WB + OZON", "Все маркетплейсы", "Другое"])
-    await message.answer(
-        "2. <b>Для какого МП</b> съемка?\n"
-        "<i>(Один МП входит в тариф, за последующий +350р/арт за кадрирование)</i>\n"
-        "Выберите вариант или напишите свои площадки вручную:",
-        reply_markup=kb,
-        parse_mode="HTML",
-    )
-    await state.set_state(Survey.marketplaces)
+@dp.callback_query(F.data == "cal_ignore")
+async def calendar_ignore(callback: CallbackQuery):
+    await callback.answer()
 
 
-@dp.message(Survey.marketplaces)
-async def step_marketplaces(message: Message, state: FSMContext):
-    await state.update_data(marketplaces=message.text)
-    await message.answer(
-        "3. <b>Наименование товара и детали подготовки</b>:\n"
-        "• Напишите название, цвет и особенности посадки.\n"
-        "• ❗️ Укажите, есть ли нюансы подготовки (отпаривание, глажка).\n"
-        "• Если необходимо показать крепления/ремни — отправьте описание или ссылку на диск с деталями:",
-        reply_markup=ReplyKeyboardRemove(),
-        parse_mode="HTML",
-    )
-    await state.set_state(Survey.product_desc)
+@dp.callback_query(F.data.startswith("cal_day:"), Survey.shoot_date)
+async def calendar_day_chosen(callback: CallbackQuery, state: FSMContext):
+    _, year, month, day = callback.data.split(":")
+    selected_date = f"{day}.{month}.{year}"
+    await state.update_data(shoot_date=selected_date)
 
-
-@dp.message(Survey.product_desc)
-async def step_product_desc(message
+    await callback.message.edit_text(f"✅ Дата съемки выбрана: <b>{selected_date}</b>", parse_mode="HTML")
+    await callback.message.answer("1. Введите <b>код вашего заказа</b> (например: АН091076):", parse_mode="HTML")
+    await state.set_
