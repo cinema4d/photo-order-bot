@@ -298,26 +298,28 @@ async def step_finish(message: Message, state: FSMContext):
     await state.clear()
 
 
-# Фейковый веб-сервер для прохождения проверки портов Render
+# Эндпоинт для проверки здоровья сервера (Render и UptimeRobot)
 async def handle_ping(request):
     return web.Response(text="Bot is running!")
 
 
-async def run_web_server():
+# Жизненный цикл aiohttp: запускает и корректно останавливает бота вместе с веб-сервером
+async def start_telegram_bot(app):
+    bot_task = asyncio.create_task(dp.start_polling(bot))
+    yield
+    bot_task.cancel()
+    await dp.stop_polling()
+    await bot.session.close()
+
+
+def create_app():
     app = web.Application()
     app.router.add_get("/", handle_ping)
     app.router.add_get("/ping", handle_ping)
-    runner = web.AppRunner(app)
-    await runner.setup()
-    port = int(os.environ.get("PORT", 8080))
-    site = web.TCPSite(runner, "0.0.0.0", port)
-    await site.start()
-
-
-async def main():
-    await run_web_server()
-    await dp.start_polling(bot)
+    app.cleanup_ctx.append(start_telegram_bot)
+    return app
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    port = int(os.environ.get("PORT", 10000))
+    web.run_app(create_app(), host="0.0.0.0", port=port)
