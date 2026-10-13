@@ -1,5 +1,3 @@
-# BOT_TOKEN = "8570870167:AAFaV8TbIXqdTXZy5YQO4yDL5aNk0qifyzA"
-
 import asyncio
 import os
 from aiohttp import web
@@ -14,7 +12,7 @@ from aiogram.types import (
     ReplyKeyboardRemove,
 )
 
-BOT_TOKEN = "8570870167:AAFaV8TbIXqdTXZy5YQO4yDL5aNk0qifyzA"
+BOT_TOKEN = "8570870167:AAERz1_Rf9wKCi7Dt5-9ytbGf7v1I6rDjMI"
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
