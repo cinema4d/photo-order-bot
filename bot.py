@@ -23,8 +23,7 @@ BOT_TOKEN = "8570870167:AAERz1_Rf9wKCi7Dt5-9ytbGf7v1I6rDjMI"
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
-# --- КАТАЛОГ БАЗЫ ГАРДЕРОБА (ФОТО И НАЗВАНИЯ) ---
-# Замените ссылки на прямые ссылки ваших фото с диска/хостинга при необходимости
+# Базовые элементы гардероба
 BASE_ITEMS = {
     "shoes": [
         {"id": "sh_1", "name": "Белые кеды / кроссовки", "photo": "https://images.unsplash.com/photo-1595950653106-6c9ebd614d3a?w=800"},
@@ -47,7 +46,6 @@ BASE_ITEMS = {
 }
 
 
-# --- FSM Состояния ---
 class Survey(StatesGroup):
     shoot_date = State()
     order_code = State()
@@ -60,13 +58,10 @@ class Survey(StatesGroup):
     tariff = State()
     video_details = State()
     video_aspect = State()
-    
-    # Подшаги образа модели (База)
     look_shoes = State()
     look_bottom = State()
     look_top = State()
     look_comment = State()
-    
     look_change = State()
     model_mood = State()
     product_features = State()
@@ -131,7 +126,6 @@ def generate_base_picker(category: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=kb)
 
 
-# --- Обработчики шагов ---
 @dp.message(CommandStart())
 async def cmd_start(message: Message, state: FSMContext):
     await state.clear()
@@ -281,12 +275,11 @@ async def step_video_details(message: Message, state: FSMContext):
     await state.set_state(Survey.video_aspect)
 
 
-# --- ШАГ 11 (ОСНОВНОЙ ОБРАЗ МОДЕЛИ: ВЫБОР ИЗ БАЗЫ) ---
 @dp.message(Survey.video_aspect)
 async def step_video_aspect(message: Message, state: FSMContext):
     await state.update_data(video_aspect=message.text)
     await message.answer(
-        "11. <b>Основной образ модели: выбор элементов базы гардероба</b>\n\n"
+        "11. <b>Основной образ модели: выбор базы</b>\n\n"
         "Стилизация образа: https://disk.yandex.ru/d/IZNg3NqqdHLDgA\n"
         "База женская: https://disk.yandex.ru/d/XQJl5aJKjBx6dA/\n\n"
         "👟 <b>Шаг 11.1: Выберите ОБУВЬ из базы</b>:",
@@ -352,4 +345,161 @@ async def step_look_comment(message: Message, state: FSMContext):
         "Да (интерьер - 3150р)",
         "Нет",
     ])
-    await message.answer("12. Требуется ли <b>смена образа</b>
+    await message.answer("12. Требуется ли <b>смена образа</b>?", reply_markup=kb, parse_mode="HTML")
+    await state.set_state(Survey.look_change)
+
+
+@dp.message(Survey.look_change)
+async def step_look_change(message: Message, state: FSMContext):
+    await state.update_data(look_change=message.text)
+    kb = make_keyboard(["Радостное", "Спокойное", "Сексуальное", "Сдержанное / Каталожное"])
+    await message.answer("13. Выберите <b>настроение модели</b>:", reply_markup=kb, parse_mode="HTML")
+    await state.set_state(Survey.model_mood)
+
+
+@dp.message(Survey.model_mood)
+async def step_model_mood(message: Message, state: FSMContext):
+    await state.update_data(model_mood=message.text)
+    await message.answer(
+        "14. <b>Детали товара</b>, которые необходимо показать крупно/отдельно (строчки, пуговицы, карманы, подкладка и т.д.):",
+        reply_markup=ReplyKeyboardRemove(),
+        parse_mode="HTML",
+    )
+    await state.set_state(Survey.product_features)
+
+
+@dp.message(Survey.product_features)
+async def step_product_features(message: Message, state: FSMContext):
+    await state.update_data(product_features=message.text)
+    await message.answer(
+        "15. <b>Примеры фото/ракурсов</b> (не более 10 примеров).\n"
+        "Отправьте ссылку на диск/папку или короткое описание желаемых ракурсов:",
+        parse_mode="HTML",
+    )
+    await state.set_state(Survey.photo_examples)
+
+
+@dp.message(Survey.photo_examples)
+async def step_photo_examples(message: Message, state: FSMContext):
+    await state.update_data(photo_examples=message.text)
+    kb = make_keyboard([
+        "Да, можно всё (бирки, нитки, бахрому)",
+        "Только отрезать нитки",
+        "Категорически ничего не срезать",
+    ])
+    await message.answer(
+        "16. <b>Коррекция товара перед съемкой</b>:\n"
+        "Можно ли срезать бирки, ровнять бахрому, отрезать нитки?",
+        reply_markup=kb,
+        parse_mode="HTML",
+    )
+    await state.set_state(Survey.allow_tags_trimming)
+
+
+@dp.message(Survey.allow_tags_trimming)
+async def step_allow_tags(message: Message, state: FSMContext):
+    await state.update_data(allow_tags_trimming=message.text)
+    await message.answer(
+        "17. Укажите <b>ваше имя, ник в Telegram (@username) и контактный телефон</b>:",
+        reply_markup=ReplyKeyboardRemove(),
+        parse_mode="HTML",
+    )
+    await state.set_state(Survey.client_contacts)
+
+
+@dp.message(Survey.client_contacts)
+async def step_client_contacts(message: Message, state: FSMContext):
+    await state.update_data(client_contacts=message.text)
+    await message.answer("18. Укажите <b>дату и способ доставки товара</b> в студию:", parse_mode="HTML")
+    await state.set_state(Survey.delivery_date)
+
+
+@dp.message(Survey.delivery_date)
+async def step_finish(message: Message, state: FSMContext):
+    await state.update_data(delivery_date=message.text)
+    data = await state.get_data()
+
+    look_full_str = (
+        f"• 1 Обувь: {data.get('look_shoes')}\n"
+        f"• 2 Низ: {data.get('look_bottom')}\n"
+        f"• 3 Верх: {data.get('look_top')}\n"
+        f"• Примечание: {data.get('look_comment', 'нет')}"
+    )
+
+    summary_text = (
+        "📋 <b>ИТОГОВОЕ ТЕХНИЧЕСКОЕ ЗАДАНИЕ НА СЪЕМКУ</b>\n\n"
+        f"<b>Дата съемки:</b> {data.get('shoot_date')}\n"
+        f"1. <b>Код заказа:</b> {data.get('order_code')}\n"
+        f"2. <b>Маркетплейсы:</b> {data.get('marketplaces')}\n"
+        f"3. <b>Наименование и подготовка:</b> {data.get('product_desc')}\n"
+        f"4. <b>Количество артикулов:</b> {data.get('sku_count')}\n"
+        f"5. <b>Формат кадрирования:</b> {data.get('crop_format')}\n"
+        f"6. <b>Имя модели:</b> {data.get('model_name')}\n"
+        f"7. <b>Локация и фон:</b> {data.get('location')}\n"
+        f"8. <b>Тариф:</b> {data.get('tariff')}\n"
+        f"9. <b>Формат видеопроходки:</b> {data.get('video_details')}\n"
+        f"10. <b>Формат видео:</b> {data.get('video_aspect')}\n"
+        f"11. <b>Основной образ модели:</b>\n{look_full_str}\n"
+        f"12. <b>Смена образа:</b> {data.get('look_change')}\n"
+        f"13. <b>Настроение модели:</b> {data.get('model_mood')}\n"
+        f"14. <b>Детали товара:</b> {data.get('product_features')}\n"
+        f"15. <b>Примеры фото (референсы):</b> {data.get('photo_examples')}\n"
+        f"16. <b>Срез бирок / ниток:</b> {data.get('allow_tags_trimming')}\n"
+        f"17. <b>Контакты заказчика:</b> {data.get('client_contacts')}\n"
+        f"18. <b>Дата доставки товара:</b> {data.get('delivery_date')}\n"
+    )
+
+    await message.answer(summary_text, parse_mode="HTML")
+
+    media_group = []
+    photos = [
+        (data.get("look_shoes"), data.get("look_shoes_photo")),
+        (data.get("look_bottom"), data.get("look_bottom_photo")),
+        (data.get("look_top"), data.get("look_top_photo")),
+    ]
+
+    for title, photo_url in photos:
+        if photo_url:
+            media_group.append(InputMediaPhoto(media=photo_url, caption=f"База: {title}"))
+
+    if media_group:
+        try:
+            await message.answer_media_group(media=media_group)
+        except Exception:
+            pass
+
+    await message.answer("✅ Анкета сформирована! Скопируйте текст выше или сохраните его для менеджера.")
+    await state.clear()
+
+
+async def handle_ping(request):
+    return web.Response(text="Bot is running!")
+
+
+async def start_web_server():
+    app = web.Application()
+    app.router.add_get("/", handle_ping)
+    app.router.add_get("/ping", handle_ping)
+
+    runner = web.AppRunner(app)
+    await runner.setup()
+
+    # Берем порт из переменной окружения Render или используем 10000 по умолчанию
+    port_val = os.environ.get("PORT", "10000")
+    try:
+        port = int(port_val)
+    except ValueError:
+        port = 10000
+
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
+
+
+async def main():
+    await start_web_server()
+    await bot.delete_webhook(drop_pending_updates=True)
+    await dp.start_polling(bot)
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
